@@ -1,16 +1,21 @@
 #include "../include/errors.h"
 
 static token e_token;
-static enum error_type e_type;
+static enum token_type expected_type;
 
-void write_error(token token, enum error_type type)
+void write_error(token actual_token, enum token_type expected)
 {
-  e_token = token;
-  e_type = type;
+  e_token = actual_token;
+  expected_type = expected;
 }
 
-void read_error(token *token, enum error_type *type)
+void read_error(token *actual_token, enum token_type *type)
 {
-  *token = e_token;
-  *type = e_type;
+  *actual_token = e_token;
+  *type = expected_type;
+
+  e_token.start = 0,
+  e_token.length = 0,
+  e_token.type = NONE;
+  expected_type = NONE;
 }

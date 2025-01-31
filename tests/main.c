@@ -85,8 +85,8 @@ static void test(const char *input)
 
   if(ast == null) {
     token token;
-    enum error_type err;
-    read_error(&token, &err);
+    enum token_type expected;
+    read_error(&token, &expected);
     printf("ERROR: %s\n", get_enum_name(token.type));
   }
   else {

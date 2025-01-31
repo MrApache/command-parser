@@ -12,9 +12,9 @@
     return null; \
   }
 
-#define error(__token, __err) \
+#define error(__token, __expected_token) \
   interrupt = 1; \
-  write_error(__token, __err); \
+  write_error(__token, __expected_token); \
   return null
 
 static_alloc_decl(alc);
@@ -76,28 +76,49 @@ t_read(void)
   return read_token(ctx);
 }
 
+static node *
+parse_zero_arg_inline_command_node(token token)
+{
+  command_node *cn = null;
+  node b_node =
+  {
+    .type = INLINE,
+    .token = token
+  };
+
+  if(b_node.token.type != IDENTIFIER) {
+    error(b_node.token, IDENTIFIER);
+  }
+
+  cn = alloc_mem(sizeof(command_node));
+  cn->node = b_node;
+  cn->args = null;
+  return &cn->node;
+}
+
 //SAFE
 static node *
 parse_inline_command_node(void)
 {
   node *command;
-  token tok;
+  token token;
 
-  const token t_open_par = t_read();
-  if (t_open_par.type != OPEN_PAR) {
-    error(t_open_par, UNEXPECTED_TOKEN);
+  token = t_read();
+  if (token.type != OPEN_PAR) {
+    command = parse_zero_arg_inline_command_node(token);
+    return command;
   }
 
-  tok = t_read();
-  if (tok.type != IDENTIFIER) {
-    error(tok, UNEXPECTED_TOKEN);
+  token = t_read();
+  if (token.type != IDENTIFIER) {
+    error(token, IDENTIFIER);
   }
 
-  s_parse_command_node(command, tok, true);
+  s_parse_command_node(command, token, true);
 
-  const token t_close_par = t_read();
-  if (t_close_par.type != CLOSE_PAR) {
-    error(t_close_par, UNEXPECTED_TOKEN);
+  token = t_read();
+  if (token.type != CLOSE_PAR) {
+    error(token, CLOSE_PAR);
   }
   return command;
 }
@@ -146,10 +167,10 @@ parse_arguments_node(void)
         run = 0;
         break;
       case UNKNOWN:
-        error(token, UNKNOWN_TOKEN);
+        error(token, NONE);
       case VERTICAL_BAR:
       case OPEN_PAR:
-        error(token, UNEXPECTED_TOKEN);
+        error(token, NONE); //TODO: FIXME
       case NONE:
         assert(false);
     }
@@ -196,21 +217,18 @@ parse_sequence_node(void)
   node b_node;
   b_node.type = SEQUENCE;
   node *left = ast;
-  node *right = null;
+  node *right = parse_node();
 
-  if(left == null){
-    puts("left == null");
-    abort();
+  if (left == null) {
+    ast = null;
+    return right;
   }
 
-  ast = null; //replace
-
-  right = parse_node();
-
   if(right == null) {
-    if (interrupt) {
-      return null;
-    }
+    return left;
+  }
+
+  if (left == right) {
     return left;
   }
 
@@ -241,12 +259,12 @@ parse_node(void)
       case DOLLAR:     s_parse_inline_command_node(ast); break;
       case END:        run = 0; break;
       case UNKNOWN:
-        error(token, UNKNOWN_TOKEN);
+        error(token, NONE);
       case STR_LITERAL:
       case INT_LITERAL:
       case OPEN_PAR:
       case CLOSE_PAR:
-      case VERTICAL_BAR: error(token, UNEXPECTED_TOKEN);
+      case VERTICAL_BAR: error(token, NONE); //TODO: FIXME
       case NONE: assert(false);
     }
   }
