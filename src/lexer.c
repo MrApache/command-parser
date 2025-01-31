@@ -3,7 +3,7 @@
 #include "../include/lexer.h"
 
 static lexer_ctx *ctx;
-static int position;
+static i32 position;
 
 static void move_str_ptr(void)
 {
@@ -11,7 +11,7 @@ static void move_str_ptr(void)
   --*ctx->length;
 }
 
-static void t_move_str_ptr(const token token)
+static void t_move_str_ptr(token token)
 {
   *ctx->start += token.length;
   *ctx->length -= token.length;
@@ -19,6 +19,7 @@ static void t_move_str_ptr(const token token)
 
 static char read_char(void)
 {
+  //Unsafe function
   return ctx->str[position++];
 }
 
@@ -28,14 +29,15 @@ static token read_str_literal(void)
   int length = 0;
   char ch = '\0';
   T_INIT(token);
-
-  for(;; ++length) {
+  for(;length < *ctx->length; ++length) {
     ch = read_char();
     if(ch == '"') {
-      break;
+      T_SET(token, STR_LITERAL, start, length);
+      return token;
     }
   }
-  T_SET(token, STR_LITERAL, start, length);
+
+  T_SET(token, UNKNOWN, start - 1, 1);
   return token;
 }
 
@@ -67,7 +69,7 @@ static token read_int_literal(void)
 
   for(;; ++length) {
     ch = read_char();
-    if(isdigit(ch)) {
+    if(isdigit(ch) || ch == '.') {
       continue;
     }
     break;
@@ -136,8 +138,10 @@ token read_token(lexer_ctx context)
       read_char();
       move_str_ptr();
       token = read_str_literal();
-      t_move_str_ptr(token);
-      move_str_ptr();
+      if (token.type == STR_LITERAL)  {
+        t_move_str_ptr(token);
+        move_str_ptr();
+      }
       return token;
     }
     else {

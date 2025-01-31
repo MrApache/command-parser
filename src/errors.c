@@ -1,18 +1,16 @@
-#include <stdlib.h>
 #include "../include/errors.h"
 
-static lexer_ctx e_context;
 static token e_token;
+static enum error_type e_type;
 
-void error(lexer_ctx context, token token)
+void write_error(token token, enum error_type type)
 {
-  e_context = context;
   e_token = token;
-  //abort();
+  e_type = type;
 }
 
-void read_error(lexer_ctx *context, token *token)
+void read_error(token *token, enum error_type *type)
 {
-  context = &e_context;
-  token = &e_token;
+  *token = e_token;
+  *type = e_type;
 }

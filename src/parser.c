@@ -2,16 +2,24 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
-#include <setjmp.h>
 #include "../include/parser.h"
 #include "../include/errors.h"
 #include "../include/membuf.h"
 #include "../include/allocator.h"
-#include "../include/debug.h"
+
+#define return_if_null(a) \
+  if(a == null) { \
+    return null; \
+  }
+
+#define error(__token, __err) \
+  interrupt = 1; \
+  write_error(__token, __err); \
+  return null
 
 static_alloc_decl(alc);
 
-static jmp_buf jump_buffer;
+static u8 interrupt = 0;
 static lexer_ctx ctx;
 static int start;
 static int length;
@@ -21,14 +29,13 @@ static buffer *buf = null;
 static inline void
 free_mem(void *ptr)
 {
-  assert(ptr);
   if (!try_free(buf, ptr)) {
     alc_free(ptr);
   }
 }
 
 static inline void *
-alloc_mem(u64 size)
+alloc_mem(const u64 size)
 {
   void *ptr = try_retrieve_memory(buf, size);
   if (ptr == null) {
@@ -47,9 +54,21 @@ static node *parse_inline_command_node(void);
 static node *parse_sequence_node(void);
 static node *parse_node(void);
 
-#define throw(context, token) \
-   error(context, token); \
-   longjmp(jump_buffer, 1);
+#define s_parse_command_node(name, _token, _int) \
+  name = parse_command_node(_token, _int); \
+  return_if_null(name)
+
+#define s_parse_inline_command_node(name) \
+  name = parse_inline_command_node(); \
+  return_if_null(name)
+
+#define s_parse_sequence_node(name) \
+  name = parse_sequence_node(); \
+  return_if_null(name)
+
+#define s_parse_node(name) \
+  name = parse_node(); \
+  return_if_null(name)
 
 static inline token
 t_read(void)
@@ -57,37 +76,29 @@ t_read(void)
   return read_token(ctx);
 }
 
-static inline void
-consume_open_par(void)
-{
-  const token token = t_read();
-  if(token.type != OPEN_PAR) {
-    throw(ctx, token);
-  } 
-}
-
-static inline void
-consume_close_par(void)
-{
-  const token token = t_read();
-  if(token.type != CLOSE_PAR) {
-    throw(ctx, token);
-  } 
-}
-
+//SAFE
 static node *
 parse_inline_command_node(void)
 {
   node *command;
-  token token;
+  token tok;
 
-  consume_open_par();
-  token = t_read();
-  if (token.type != IDENTIFIER) {
-    throw(ctx, token);
+  const token t_open_par = t_read();
+  if (t_open_par.type != OPEN_PAR) {
+    error(t_open_par, UNEXPECTED_TOKEN);
   }
-  command = parse_command_node(token, true);
-  consume_close_par();
+
+  tok = t_read();
+  if (tok.type != IDENTIFIER) {
+    error(tok, UNEXPECTED_TOKEN);
+  }
+
+  s_parse_command_node(command, tok, true);
+
+  const token t_close_par = t_read();
+  if (t_close_par.type != CLOSE_PAR) {
+    error(t_close_par, UNEXPECTED_TOKEN);
+  }
   return command;
 }
 
@@ -113,19 +124,17 @@ parse_arguments_node(void)
       case IDENTIFIER:
       case INT_LITERAL:
       case STR_LITERAL:
-        an = try_retrieve_memory(buf, sizeof(argument_node));
-        if (an == null) {
-          puts("cant retrieve memory");
-          abort(); //TODO: message
-        }
+        an = alloc_mem(sizeof(argument_node));
         an->type = b_node.type;
         an->token = b_node.token;
         arguments[buf_pos++] = an;
+        //TODO: index out of range (UB)
         arguments[buf_pos] = null;
         break;
       case DOLLAR:
-        cn = parse_inline_command_node();
+        s_parse_inline_command_node(cn);
         arguments[buf_pos++] = cn;
+        //TODO: index out of range (UB) or allocate memory
         arguments[buf_pos] = null;
         break;
       case CLOSE_PAR:
@@ -137,19 +146,20 @@ parse_arguments_node(void)
         run = 0;
         break;
       case UNKNOWN:
+        error(token, UNKNOWN_TOKEN);
       case VERTICAL_BAR:
       case OPEN_PAR:
-        throw(ctx, token);
+        error(token, UNEXPECTED_TOKEN);
       case NONE:
         assert(false);
     }
   }
   if (buf_pos != 0) {
     const size_t size = sizeof(node *) * (buf_pos + 1); //include null at the end
-    result = alc_malloc(size); //TODO: buffer array
+    result = alc_malloc(size);
     if (result == null) {
-      puts("out of memory");
-      abort(); //TODO: message
+      puts("Error: Out of memory");
+      abort();
     }
     memcpy(result, arguments, size);
   }
@@ -167,15 +177,17 @@ parse_command_node(token token, int inl)
   b_node.token = token;
 
   args = parse_arguments_node();
+  if (args == null && interrupt) {
+    return null;
+  }
 
   cn = alloc_mem(sizeof(command_node));
   cn->node = b_node;
   cn->args = args;
-  cn->inl = inl;
   return &cn->node;
 }
 
-#define abs(x) x < 0 ? -(x) : x
+#define abs(x) (x < 0 ? -(x) : x)
 
 static node *
 parse_sequence_node(void)
@@ -185,18 +197,21 @@ parse_sequence_node(void)
   b_node.type = SEQUENCE;
   node *left = ast;
   node *right = null;
-  
+
   if(left == null){
     puts("left == null");
     abort();
-    //error(ctx, token);
   }
+
+  ast = null; //replace
 
   right = parse_node();
 
   if(right == null) {
-    puts("right == null");
-    abort();
+    if (interrupt) {
+      return null;
+    }
+    return left;
   }
 
   delta = abs(right->token.length - right->token.start);
@@ -210,7 +225,7 @@ parse_sequence_node(void)
   sn->right = right;
 
   return &sn->node;
-}
+} 
 
 static node *
 parse_node(void)
@@ -221,46 +236,29 @@ parse_node(void)
   while(run) {
     token = t_read();
     switch(token.type) {
-      case IDENTIFIER:
-        ast = parse_command_node(token, false);
-        break;
-      case SEMICOLON:
-        ast = parse_sequence_node();
-        break;
-      case DOLLAR:
-        ast = parse_inline_command_node();
-        break;
-      case END:
-        run = 0;
-        break;
-
-      case NONE: assert(false);
-      case UNKNOWN: 
+      case IDENTIFIER: s_parse_command_node(ast, token, false); break;
+      case SEMICOLON:  s_parse_sequence_node(ast); break;
+      case DOLLAR:     s_parse_inline_command_node(ast); break;
+      case END:        run = 0; break;
+      case UNKNOWN:
+        error(token, UNKNOWN_TOKEN);
       case STR_LITERAL:
       case INT_LITERAL:
       case OPEN_PAR:
       case CLOSE_PAR:
-      case VERTICAL_BAR:
-        throw(ctx, token);
+      case VERTICAL_BAR: error(token, UNEXPECTED_TOKEN);
+      case NONE: assert(false);
     }
   }
-  return ast; //TODO: Fixme
+  return ast;
 }
 
 node *
 to_ast(const char *input)
 {
-  if (buf == null) {
-    buf = init_buffer(sizeof(sequence_node) * 16);
-  }
-  /*
-  else {
-    puts("Buffer is not null");
-    abort();
-  }
-  */
   stack_alloc(alc, void, 256);
 
+  interrupt = 0;
   start = 0;
   length = strlen(input);
 
@@ -268,24 +266,30 @@ to_ast(const char *input)
   ctx.start = &start;
   ctx.length = &length;
 
-  if (setjmp(jump_buffer) == 0) {
-    parse_node();
-    #ifndef MEMPRNT
-      #ifndef NDEBUG
-    printf("Used memory: %lu, Total: %lu, Allocations:%d\n", buf->allocated, buf->size, alc.allocations);
-      #endif
-    #endif
-    return ast;
+  ast = parse_node();
+
+  if (ast == null) {
+    clear_buffer(buf);
+    alc_free_allocator();
+    assert(alc.allocations == 0);
+    return null;
   }
-  clear_buffer(buf);
-  buf = null;
-  alc_free_allocator();
-  assert(alc.allocations == 0);
-  return null;
+
+#ifndef MEMPRNT
+#ifndef NDEBUG
+  if (buf != null) {
+    printf("Used memory: %lu, Total: %lu, Allocations:%d\n", buf->allocated, buf->size, alc.allocations);
+  }
+  else {
+    printf("Cache is not set. Allocations:%d\n", alc.allocations);
+  }
+#endif
+#endif
+
+  return ast;
 }
 
-static void 
-free_command_node(command_node *cn)
+static void free_command_node(command_node *cn)
 {
   node **args = cn->args;
   i32 i = 0;
@@ -310,10 +314,7 @@ free_command_node(command_node *cn)
   free_mem(cn);
 }
 
-static void free_sequence_node(sequence_node *sn);
-
-static void 
-free_node(node *node)
+static void free_node(node *node)
 {
   switch(node->type) {
     case COMMAND:
@@ -322,7 +323,9 @@ free_node(node *node)
       break;
     case SEQUENCE:
       sequence_node *sn = (sequence_node *)node;
-      free_sequence_node(sn);
+      free_node(sn->left);
+      free_node(sn->right);
+      free_mem(sn);
       break;
     case ARGUMENT:
     case INLINE:
@@ -330,22 +333,45 @@ free_node(node *node)
   }
 }
 
-static inline
-void free_sequence_node(sequence_node *sn)
+void free_ast(node *node)
 {
-  free_node(sn->left);
-  free_node(sn->right);
-  free_mem(sn);
-}
-
-void
-free_ast(node *ast)
-{
-  if (ast == null) {
+  if (node == null) {
     return;
   }
-  free_node(ast);
+  free_node(node);
   clear_buffer(buf);
-
+  ast = null;
   assert(alc.allocations == 0);
+}
+
+u64 set_node_cache(u32 node_count)
+{
+  if (node_count == 0) {
+    return 0;
+  }
+
+  u64 size = sizeof(sequence_node) * node_count;
+  if (buf != null) {
+    puts("Invalid operation: Buffer already allocated");
+    abort();
+  }
+
+  buf = init_buffer(size);
+  return size;
+}
+
+void free_node_cache(void)
+{
+  if (buf == null) {
+    puts("Invalid operation: Buffer is null");
+    abort();
+  }
+
+  if (buf->allocated != 0) {
+    puts("Invalid operation: Buffer is used now");
+    abort();
+  }
+
+  free_buffer(buf);
+  buf = null;
 }

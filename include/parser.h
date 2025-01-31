@@ -21,7 +21,6 @@ typedef struct command_node
 {
   node node;
   node **args;
-  int inl;
 } command_node;
 
 typedef struct sequence_node
@@ -31,5 +30,7 @@ typedef struct sequence_node
   node *right; 
 } sequence_node;
 
+u64 set_node_cache(u32 node_count);
+void free_node_cache(void);
 node *to_ast(const char *input);
 void free_ast(node *ast);

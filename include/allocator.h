@@ -14,7 +14,7 @@ void free_allocator(allocator *);
 void a_free(allocator *, void *);
 
 #define stack_alloc(alc, type, size) \
-  type*__st_al_buf[size]; \
+  type*__st_al_buf[size] = {0}; \
   alc = init_allocator(__st_al_buf, sizeof(__st_al_buf))
 
 #define static_alloc_decl(name) \

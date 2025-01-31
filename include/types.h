@@ -2,7 +2,7 @@
 
 #define true 1
 #define false 0
-#define null NULL
+#define null ((void*)0)
 
 typedef unsigned long u64;
 typedef unsigned int u32;

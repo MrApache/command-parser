@@ -38,6 +38,11 @@ void *
 try_retrieve_memory(buffer *b, u64 size)
 {
   void *ptr = null;
+
+  if (b == null) {
+    return null;
+  }
+
   if(size + b->allocated >= b->size) {
     return null;
   }
@@ -49,7 +54,13 @@ try_retrieve_memory(buffer *b, u64 size)
 int
 try_free(buffer *b, void *ptr)
 {
-  void *pool = b->pool;
+  void *pool = null;
+
+  if (b == null) {
+    return 0;
+  }
+
+  pool = b->pool;
   if (ptr >= pool && ptr < pool + b->allocated) {
     return 1;
   }
@@ -59,6 +70,9 @@ try_free(buffer *b, void *ptr)
 void
 clear_buffer(buffer *b)
 {
+  if (b == null) {
+    return;
+  }
   memset(b->pool, 0, b->allocated);
   b->allocated = 0;
 }

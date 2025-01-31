@@ -32,7 +32,7 @@ static void print_command_node(const char *input, const command_node *cn, int in
   arr[indent + 1] = '\0';
   printf("%s[%s] %.*s\n",
     arr,
-    cn->inl ? "INLINE_COMMAND" : "COMMAND",
+    cn->node.type == INLINE ? "INLINE_COMMAND" : "COMMAND",
     cn->node.token.length,
     input + cn->node.token.start);
 
@@ -59,7 +59,12 @@ static void print_sequence_node(const char *input, const sequence_node *sn, int 
     sn->node.token.length,
     input + sn->node.token.start);
   print_command_node(input, (command_node *)sn->left, indent + 1);
-  print_command_node(input, (command_node *)sn->right, indent + 1);
+  if (sn->right->type == SEQUENCE) {
+    print_sequence_node(input, (sequence_node *)sn->right, indent + 1);
+  }
+  else {
+    print_command_node(input, (command_node *)sn->right, indent + 1);
+  }
 }
 
 static void print_ast(const char *input, const node *ast)
@@ -74,34 +79,33 @@ static void print_ast(const char *input, const node *ast)
   }
 }
 
-int main(const int argc, const char **argv)
+static void test(const char *input)
 {
-  const char *input = null;
-
-  if(argc < 2) {
-    return NOT_ENOUGH_ARGS;
-  }
-
-  input = argv[1];
-  node *ast = null;
-
-  /*
-  for (int i = 0; i < 20000000; ++i) {
-    ast = to_ast(input);
-    free_ast(ast);
-  }
-  */
-  ast = to_ast(input);
+  node *ast = to_ast(input);
 
   if(ast == null) {
-    lexer_ctx ctx;
     token token;
-    read_error(&ctx, &token);
-    puts("Error");
+    enum error_type err;
+    read_error(&token, &err);
+    printf("ERROR: %s\n", get_enum_name(token.type));
   }
   else {
     print_ast(input, ast);
     free_ast(ast);
   }
+}
+
+int main(const int argc, const char **argv)
+{
+  if(argc < 2) {
+    return NOT_ENOUGH_ARGS;
+  }
+
+  set_node_cache(16);
+  test(argv[1]);
+  if (argc > 2) {
+    test(argv[2]);
+  }
+  free_node_cache();
   return 0;
 }

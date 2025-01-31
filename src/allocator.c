@@ -24,6 +24,7 @@ a_malloc(allocator *alloc, u64 size)
     return null;
   }
   alloc->ptrs[alloc->allocations++] = result;
+  //TODO: index out of range
   //if (alloc->allocations > 1) {}
   alloc->ptrs[alloc->allocations] = null;
   return result;

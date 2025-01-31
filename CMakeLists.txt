@@ -11,4 +11,4 @@ add_library(command_parser SHARED
         src/errors.c
         src/allocator.c
         src/membuf.c
-        src/debug.c)
+)
